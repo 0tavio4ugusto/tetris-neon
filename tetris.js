@@ -287,10 +287,21 @@ function initStars() {
 // ============================================================
 // INPUT
 // ============================================================
-const keys = {};
+// Track held keys
+const held = { left: false, right: false, down: false };
+
+// DAS (Delayed Auto Shift) — industry-standard Tetris feel
+const DAS_DELAY = 170;   // ms before auto-repeat kicks in
+const DAS_REPEAT = 50;   // ms between auto-repeat moves
+let dasTimer = 0;
+let dasDir = 0;           // -1 = left, 1 = right, 0 = none
+let softDropTimer = 0;
+const SOFT_DROP_RATE = 40; // ms between soft drop ticks
 
 document.addEventListener('keydown', e => {
-  if (e.repeat) return;
+  // Only block repeat for rotate, hold, hard drop, pause, start
+  const isRepeatable = e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'ArrowDown';
+  if (e.repeat && !isRepeatable) return;
 
   if (e.key === 'Enter') {
     if (gameState === 'menu' || gameState === 'gameover') {
@@ -315,13 +326,29 @@ document.addEventListener('keydown', e => {
 
   switch (e.key) {
     case 'ArrowLeft':
-      tryMove(-1, 0);
+      if (!held.left) {
+        held.left = true;
+        held.right = false;
+        dasDir = -1;
+        dasTimer = 0;
+        tryMove(-1, 0);
+      }
       break;
     case 'ArrowRight':
-      tryMove(1, 0);
+      if (!held.right) {
+        held.right = true;
+        held.left = false;
+        dasDir = 1;
+        dasTimer = 0;
+        tryMove(1, 0);
+      }
       break;
     case 'ArrowDown':
-      softDrop();
+      if (!held.down) {
+        held.down = true;
+        softDropTimer = 0;
+        softDrop();
+      }
       break;
     case 'ArrowUp':
       tryRotate(1);
@@ -341,11 +368,21 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// DAS (Delayed Auto Shift)
-let dasTimer = 0;
-let dasDir = 0;
-const DAS_DELAY = 170;
-const DAS_REPEAT = 50;
+document.addEventListener('keyup', e => {
+  switch (e.key) {
+    case 'ArrowLeft':
+      held.left = false;
+      if (dasDir === -1) dasDir = held.right ? 1 : 0;
+      break;
+    case 'ArrowRight':
+      held.right = false;
+      if (dasDir === 1) dasDir = held.left ? -1 : 0;
+      break;
+    case 'ArrowDown':
+      held.down = false;
+      break;
+  }
+});
 
 // ============================================================
 // MOVEMENT
@@ -599,6 +636,27 @@ function gameLoop(time) {
   // Flash timer
   if (flashTimer > 0) flashTimer -= dt;
 
+  // DAS — auto-repeat left/right when held
+  if (dasDir !== 0) {
+    dasTimer += dt;
+    if (dasTimer >= DAS_DELAY) {
+      // In ARR phase — repeat at DAS_REPEAT rate
+      while (dasTimer >= DAS_DELAY + DAS_REPEAT) {
+        tryMove(dasDir, 0);
+        dasTimer -= DAS_REPEAT;
+      }
+    }
+  }
+
+  // Soft drop auto-repeat
+  if (held.down) {
+    softDropTimer += dt;
+    while (softDropTimer >= SOFT_DROP_RATE) {
+      softDrop();
+      softDropTimer -= SOFT_DROP_RATE;
+    }
+  }
+
   // Gravity
   dropTimer += dt;
   if (dropTimer >= dropInterval) {
@@ -652,6 +710,10 @@ function startGame() {
   flashRows = [];
   flashTimer = 0;
   shakeTimer = 0;
+  held.left = held.right = held.down = false;
+  dasTimer = 0;
+  dasDir = 0;
+  softDropTimer = 0;
   gameState = 'playing';
 
   hideOverlay();
